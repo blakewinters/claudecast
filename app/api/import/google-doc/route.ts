@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { auth } from "@/auth";
 import { googleDocsImporter } from "@/lib/google-docs-importer";
 
 export const runtime = "nodejs";
@@ -10,6 +11,14 @@ interface ReqBody {
 }
 
 export async function POST(req: Request) {
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json(
+      { error: { code: "unauthenticated", message: "Sign in first." } },
+      { status: 401 },
+    );
+  }
+
   let body: ReqBody;
   try {
     body = await req.json();
@@ -34,7 +43,9 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await googleDocsImporter.importByUrlOrId(input);
+    const result = await googleDocsImporter.importByUrlOrId(input, {
+      accessToken: session.accessToken,
+    });
     return NextResponse.json({
       ok: true,
       documentId: result.documentId,

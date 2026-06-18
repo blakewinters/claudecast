@@ -1,10 +1,11 @@
 import type { Metadata, Viewport } from "next";
+import { auth } from "@/auth";
+import { Providers } from "@/components/Providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "ClaudeCast",
   description: "Listen to Claude responses as podcasts.",
-  manifest: undefined,
 };
 
 export const viewport: Viewport = {
@@ -16,15 +17,18 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const session = await auth();
   return (
     <html lang="en" className="dark">
       <body>
-        <div className="min-h-screen max-w-2xl mx-auto">{children}</div>
+        <Providers session={session}>
+          <div className="min-h-screen max-w-2xl mx-auto">{children}</div>
+        </Providers>
       </body>
     </html>
   );

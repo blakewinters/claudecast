@@ -3,6 +3,11 @@ import {
   googleDocExportUrl,
   isPublishedGoogleDocUrl,
 } from "./google-doc";
+import {
+  exportGoogleDocAsHtml,
+  getGoogleDocMetadata,
+  GoogleDriveError,
+} from "./google-drive";
 import { parseHtml, parseText } from "./parser";
 import type { ParsedDoc } from "./types";
 
@@ -10,7 +15,8 @@ export interface ImportResult {
   parsed: ParsedDoc;
   documentId: string;
   sourceUrl: string;
-  fetchedFormat: "html" | "txt" | "pub";
+  fetchedFormat: "html" | "txt" | "pub" | "drive_api";
+  title?: string;
 }
 
 export interface ImportError {
@@ -29,7 +35,10 @@ export interface ImportError {
  * For private docs, callers should fall back to OAuth (not implemented in MVP).
  */
 export class GoogleDocsImporter {
-  async importByUrlOrId(urlOrId: string): Promise<ImportResult> {
+  async importByUrlOrId(
+    urlOrId: string,
+    opts: { accessToken?: string } = {},
+  ): Promise<ImportResult> {
     const id = extractGoogleDocId(urlOrId);
     if (!id) {
       throw <ImportError>{
@@ -37,6 +46,42 @@ export class GoogleDocsImporter {
         message:
           "That doesn't look like a Google Doc link. Paste the URL from the address bar in Docs.",
       };
+    }
+
+    // If we have an OAuth token, use the Drive API (works on private docs).
+    if (opts.accessToken) {
+      try {
+        const [html, meta] = await Promise.all([
+          exportGoogleDocAsHtml(id, opts.accessToken),
+          getGoogleDocMetadata(id, opts.accessToken).catch(() => null),
+        ]);
+        const parsed = parseHtml(html, { title: meta?.name });
+        return {
+          parsed,
+          documentId: id,
+          sourceUrl:
+            meta?.webViewLink ??
+            `https://docs.google.com/document/d/${id}/edit`,
+          fetchedFormat: "drive_api",
+          title: meta?.name,
+        };
+      } catch (err) {
+        if (err instanceof GoogleDriveError) {
+          if (err.code === "unauthorized") {
+            throw <ImportError>{
+              code: "oauth_required",
+              message: err.message,
+            };
+          }
+          if (err.code === "forbidden" || err.code === "not_found") {
+            throw <ImportError>{
+              code: "not_accessible",
+              message: err.message,
+            };
+          }
+        }
+        // Otherwise fall through to public-fetch attempts below.
+      }
     }
 
     const isPublished = isPublishedGoogleDocUrl(urlOrId);

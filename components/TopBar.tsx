@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, Settings as SettingsIcon } from "lucide-react";
+import { UserMenu } from "./UserMenu";
 
 interface Props {
   title?: string;
@@ -46,6 +47,7 @@ export function TopBar({ title, back, rightSlot }: Props) {
           >
             <SettingsIcon className="h-5 w-5" />
           </Link>
+          <UserMenu />
         </div>
       </div>
     </header>

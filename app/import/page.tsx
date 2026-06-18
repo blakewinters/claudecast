@@ -10,6 +10,7 @@ import {
   ImportPreview,
   type PreviewSection,
 } from "@/components/ImportPreview";
+import { DrivePicker } from "@/components/DrivePicker";
 import {
   buildCast,
   parseMarkdown,
@@ -21,7 +22,7 @@ import { saveCast } from "@/lib/db";
 import { useSettings } from "@/hooks/useSettings";
 import type { ParsedDoc, SourceType } from "@/lib/types";
 
-type Mode = "google" | "paste" | "markdown" | "json";
+type Mode = "drive" | "google" | "paste" | "markdown" | "json";
 
 interface PreparedImport {
   parsed: ParsedDoc;
@@ -33,7 +34,7 @@ interface PreparedImport {
 export default function ImportPage() {
   const router = useRouter();
   const { settings } = useSettings();
-  const [mode, setMode] = useState<Mode>("google");
+  const [mode, setMode] = useState<Mode>("drive");
   const [docUrl, setDocUrl] = useState("");
   const [pasted, setPasted] = useState("");
   const [titleOverride, setTitleOverride] = useState("");
@@ -46,6 +47,58 @@ export default function ImportPage() {
   const [previewTitle, setPreviewTitle] = useState("");
   const [previewSections, setPreviewSections] = useState<PreviewSection[]>([]);
   const [saving, setSaving] = useState(false);
+
+  const importFromGoogle = async (input: {
+    url?: string;
+    documentId?: string;
+    titleHint?: string;
+  }) => {
+    const res = await fetch("/api/import/google-doc", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: input.url,
+        documentId: input.documentId,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(
+        data?.error?.message ||
+          "Couldn't import that doc. Try setting sharing to 'Anyone with the link can view'.",
+      );
+    }
+    const parsed: ParsedDoc = {
+      title: data.title || input.titleHint || "Untitled Cast",
+      sections: data.sections,
+      rawText: data.rawText ?? "",
+    };
+    setPrepared({
+      parsed,
+      sourceType: "google_doc",
+      sourceUrl: data.sourceUrl,
+      sourceDocumentId: data.documentId,
+    });
+    setPreviewTitle(titleOverride.trim() || input.titleHint || parsed.title);
+    setPreviewSections(
+      parsed.sections.map((s: { title: string; text: string }) => ({
+        title: s.title,
+        text: s.text,
+      })),
+    );
+  };
+
+  const onPickDriveDoc = async (doc: { id: string; name: string }) => {
+    setError(null);
+    setLoading(true);
+    try {
+      await importFromGoogle({ documentId: doc.id, titleHint: doc.name });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const submitImport = async () => {
     setError(null);
@@ -63,28 +116,8 @@ export default function ImportPage() {
           setLoading(false);
           return;
         }
-        const res = await fetch("/api/import/google-doc", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: docUrl }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setError(
-            data?.error?.message ||
-              "Couldn't import that doc. Try setting sharing to 'Anyone with the link can view'.",
-          );
-          setLoading(false);
-          return;
-        }
-        parsed = {
-          title: data.title,
-          sections: data.sections,
-          rawText: data.rawText ?? "",
-        };
-        sourceType = "google_doc";
-        sourceUrl = data.sourceUrl;
-        sourceDocumentId = data.documentId;
+        await importFromGoogle({ url: docUrl });
+        return;
       } else if (mode === "paste") {
         if (!pasted.trim()) {
           setError("Paste some text first.");
@@ -181,6 +214,17 @@ export default function ImportPage() {
         ) : (
           <>
             <ModeTabs mode={mode} onChange={setMode} />
+            {mode === "drive" ? (
+              <Card>
+                <h3 className="text-sm font-medium text-ink mb-3">
+                  Your Google Docs
+                </h3>
+                <DrivePicker onPick={onPickDriveDoc} />
+                {loading && (
+                  <div className="mt-3 text-xs text-accent">Importing…</div>
+                )}
+              </Card>
+            ) : (
             <Card>
               {mode === "google" && (
                 <>
@@ -242,6 +286,7 @@ export default function ImportPage() {
                 </>
               )}
             </Card>
+            )}
 
             <Card>
               <h3 className="text-sm font-medium text-ink mb-2">
@@ -280,14 +325,16 @@ export default function ImportPage() {
               </div>
             )}
 
-            <Button
-              size="lg"
-              className="w-full"
-              onClick={submitImport}
-              disabled={loading}
-            >
-              {loading ? "Importing…" : "Preview sections"}
-            </Button>
+            {mode !== "drive" && (
+              <Button
+                size="lg"
+                className="w-full"
+                onClick={submitImport}
+                disabled={loading}
+              >
+                {loading ? "Importing…" : "Preview sections"}
+              </Button>
+            )}
           </>
         )}
       </main>
@@ -297,7 +344,8 @@ export default function ImportPage() {
 
 function ModeTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
   const tabs: { id: Mode; label: string }[] = [
-    { id: "google", label: "Google Doc" },
+    { id: "drive", label: "Drive" },
+    { id: "google", label: "URL" },
     { id: "paste", label: "Paste" },
     { id: "markdown", label: "Markdown" },
     { id: "json", label: "JSON" },
