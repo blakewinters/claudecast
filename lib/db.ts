@@ -2,6 +2,12 @@
 
 import Dexie, { type Table } from "dexie";
 import type { Cast, PlaybackState, Settings } from "./types";
+import {
+  pushCast,
+  pushCastDelete,
+  pushPlayback,
+  pushSettings,
+} from "./sync-client";
 
 export interface AudioCacheEntry {
   key: string;
@@ -80,6 +86,7 @@ export async function saveSettings(patch: Partial<Settings>): Promise<Settings> 
   const current = await getSettings();
   const next: Settings = { ...current, ...patch, id: "singleton" };
   await db.settings.put(next);
+  void pushSettings(next);
   return next;
 }
 
@@ -94,7 +101,9 @@ export async function getCast(id: string): Promise<Cast | undefined> {
 
 export async function saveCast(cast: Cast): Promise<void> {
   const db = getDB();
-  await db.casts.put({ ...cast, updatedAt: Date.now() });
+  const stamped = { ...cast, updatedAt: Date.now() };
+  await db.casts.put(stamped);
+  void pushCast(stamped);
 }
 
 export async function deleteCast(id: string): Promise<void> {
@@ -104,6 +113,7 @@ export async function deleteCast(id: string): Promise<void> {
     await db.playback.delete(id);
     await db.audio.where("castId").equals(id).delete();
   });
+  void pushCastDelete(id);
 }
 
 export async function getCachedAudio(
@@ -126,7 +136,9 @@ export async function getPlayback(castId: string): Promise<PlaybackState | undef
 
 export async function savePlayback(state: PlaybackState): Promise<void> {
   const db = getDB();
-  await db.playback.put({ ...state, updatedAt: Date.now() });
+  const stamped = { ...state, updatedAt: Date.now() };
+  await db.playback.put(stamped);
+  void pushPlayback(stamped);
 }
 
 export interface BackupBundle {

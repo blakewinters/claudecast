@@ -8,8 +8,10 @@ import { CastCard } from "@/components/CastCard";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useCasts, usePlaybackStates } from "@/hooks/useCasts";
+import { useInitialSync } from "@/hooks/useInitialSync";
 
 export default function LibraryPage() {
+  const sync = useInitialSync();
   const casts = useCasts();
   const playbackMap = usePlaybackStates();
   const [query, setQuery] = useState("");
@@ -85,8 +87,10 @@ export default function LibraryPage() {
           />
         </div>
 
-        {casts === undefined ? (
-          <div className="text-ink-muted text-sm">Loading…</div>
+        {casts === undefined || sync.state === "syncing" ? (
+          <div className="text-ink-muted text-sm">
+            {sync.state === "syncing" ? "Syncing your library…" : "Loading…"}
+          </div>
         ) : casts.length === 0 ? (
           <EmptyState />
         ) : (
