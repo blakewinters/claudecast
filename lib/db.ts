@@ -3,10 +3,32 @@
 import Dexie, { type Table } from "dexie";
 import type { Cast, PlaybackState, Settings } from "./types";
 
+export interface AudioCacheEntry {
+  key: string;
+  castId: string;
+  sectionId: string;
+  chunkIndex: number;
+  voice: string;
+  mimeType: string;
+  blob: Blob;
+  durationSeconds?: number;
+  createdAt: number;
+}
+
+export function audioCacheKey(
+  castId: string,
+  sectionId: string,
+  chunkIndex: number,
+  voice: string,
+): string {
+  return `${castId}:${sectionId}:${chunkIndex}:${voice}`;
+}
+
 export class ClaudeCastDB extends Dexie {
   casts!: Table<Cast, string>;
   playback!: Table<PlaybackState, string>;
   settings!: Table<Settings, string>;
+  audio!: Table<AudioCacheEntry, string>;
 
   constructor() {
     super("claudecast");
@@ -14,6 +36,12 @@ export class ClaudeCastDB extends Dexie {
       casts: "id, createdAt, updatedAt, title, sourceType, sourceDocumentId",
       playback: "castId, updatedAt",
       settings: "id",
+    });
+    this.version(2).stores({
+      casts: "id, createdAt, updatedAt, title, sourceType, sourceDocumentId",
+      playback: "castId, updatedAt",
+      settings: "id",
+      audio: "key, castId, createdAt",
     });
   }
 }
@@ -30,6 +58,8 @@ export function getDB(): ClaudeCastDB {
 
 export const DEFAULT_SETTINGS: Settings = {
   id: "singleton",
+  ttsProvider: "google",
+  ttsVoice: "en-US-Neural2-J",
   rate: 1.0,
   pitch: 1.0,
   wpm: 160,
@@ -69,10 +99,25 @@ export async function saveCast(cast: Cast): Promise<void> {
 
 export async function deleteCast(id: string): Promise<void> {
   const db = getDB();
-  await db.transaction("rw", db.casts, db.playback, async () => {
+  await db.transaction("rw", db.casts, db.playback, db.audio, async () => {
     await db.casts.delete(id);
     await db.playback.delete(id);
+    await db.audio.where("castId").equals(id).delete();
   });
+}
+
+export async function getCachedAudio(
+  key: string,
+): Promise<AudioCacheEntry | undefined> {
+  return getDB().audio.get(key);
+}
+
+export async function putCachedAudio(entry: AudioCacheEntry): Promise<void> {
+  await getDB().audio.put(entry);
+}
+
+export async function deleteCastAudio(castId: string): Promise<void> {
+  await getDB().audio.where("castId").equals(castId).delete();
 }
 
 export async function getPlayback(castId: string): Promise<PlaybackState | undefined> {

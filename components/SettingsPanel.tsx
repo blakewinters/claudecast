@@ -6,6 +6,8 @@ import { Input } from "./ui/Input";
 import { Button } from "./ui/Button";
 import type { Settings } from "@/lib/types";
 import { SpeechEngine } from "@/lib/speech";
+import { DEFAULT_GOOGLE_VOICES } from "@/lib/tts/types";
+import { cn } from "@/lib/utils";
 
 interface Props {
   settings: Settings;
@@ -24,24 +26,65 @@ export function SettingsPanel({ settings, onChange }: Props) {
   return (
     <div className="space-y-4">
       <Card>
-        <h2 className="font-semibold mb-3">Voice</h2>
-        <select
-          value={settings.voiceURI ?? ""}
-          onChange={(e) => onChange({ voiceURI: e.target.value || undefined })}
-          className="h-11 w-full rounded-lg bg-bg-elevated border border-line px-3 text-ink"
-        >
-          <option value="">System default</option>
-          {voices.map((v) => (
-            <option key={v.voiceURI} value={v.voiceURI}>
-              {v.name} ({v.lang})
-            </option>
-          ))}
-        </select>
-        {voices.length === 0 && (
-          <p className="mt-2 text-xs text-ink-dim">
-            No voices detected yet — they load asynchronously. Click a play
-            button once, then come back.
-          </p>
+        <h2 className="font-semibold mb-3">Voice quality</h2>
+        <div className="flex gap-2 mb-3">
+          <ProviderTile
+            label="Google Neural"
+            sub="Natural, conversational"
+            active={settings.ttsProvider === "google"}
+            onClick={() => onChange({ ttsProvider: "google" })}
+          />
+          <ProviderTile
+            label="Browser TTS"
+            sub="Robotic but offline"
+            active={settings.ttsProvider === "browser"}
+            onClick={() => onChange({ ttsProvider: "browser" })}
+          />
+        </div>
+
+        {settings.ttsProvider === "google" ? (
+          <>
+            <label className="block text-xs text-ink-muted mb-1">Voice</label>
+            <select
+              value={settings.ttsVoice}
+              onChange={(e) => onChange({ ttsVoice: e.target.value })}
+              className="h-11 w-full rounded-lg bg-bg-elevated border border-line px-3 text-ink"
+            >
+              {DEFAULT_GOOGLE_VOICES.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.label}
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-xs text-ink-dim">
+              Audio is cached per voice, so swapping costs nothing on replay.
+            </p>
+          </>
+        ) : (
+          <>
+            <label className="block text-xs text-ink-muted mb-1">
+              Browser voice
+            </label>
+            <select
+              value={settings.voiceURI ?? ""}
+              onChange={(e) =>
+                onChange({ voiceURI: e.target.value || undefined })
+              }
+              className="h-11 w-full rounded-lg bg-bg-elevated border border-line px-3 text-ink"
+            >
+              <option value="">System default</option>
+              {voices.map((v) => (
+                <option key={v.voiceURI} value={v.voiceURI}>
+                  {v.name} ({v.lang})
+                </option>
+              ))}
+            </select>
+            {voices.length === 0 && (
+              <p className="mt-2 text-xs text-ink-dim">
+                No voices detected yet — they load asynchronously.
+              </p>
+            )}
+          </>
         )}
       </Card>
 
@@ -121,6 +164,33 @@ export function SettingsPanel({ settings, onChange }: Props) {
         </div>
       </Card>
     </div>
+  );
+}
+
+function ProviderTile({
+  label,
+  sub,
+  active,
+  onClick,
+}: {
+  label: string;
+  sub: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "flex-1 rounded-lg border p-3 text-left",
+        active
+          ? "bg-accent/15 border-accent text-ink"
+          : "bg-bg-elevated border-line text-ink-muted hover:text-ink",
+      )}
+    >
+      <div className="text-sm font-medium">{label}</div>
+      <div className="text-xs opacity-75">{sub}</div>
+    </button>
   );
 }
 

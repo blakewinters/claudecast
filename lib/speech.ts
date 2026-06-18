@@ -2,7 +2,7 @@
 
 import type { Cast, Chunk, Section } from "./types";
 
-export type EngineStatus = "idle" | "loading" | "playing" | "paused" | "ended";
+export type EngineStatus = "idle" | "loading" | "playing" | "paused" | "ended" | "error";
 
 export interface EngineState {
   status: EngineStatus;
@@ -11,7 +11,8 @@ export interface EngineState {
   estimatedCurrentSeconds: number;
   totalDurationSeconds: number;
   rate: number;
-  voiceURI: string | undefined;
+  voice: string;
+  error?: string;
 }
 
 export interface EngineOptions {
@@ -123,7 +124,7 @@ export class SpeechEngine {
       estimatedCurrentSeconds: this.computeCurrentSeconds(),
       totalDurationSeconds: this.cast.totalDurationSeconds,
       rate: this.rate,
-      voiceURI: this.voiceURI,
+      voice: this.voiceURI ?? "",
     };
   }
 

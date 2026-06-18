@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { SpeechEngine, type EngineState } from "@/lib/speech";
+import { AudioEngine, type EngineState } from "@/lib/audio-engine";
+import { SpeechEngine } from "@/lib/speech";
 import { getPlayback, savePlayback } from "@/lib/db";
 import type { Cast, Settings } from "@/lib/types";
 
@@ -10,26 +11,77 @@ interface UsePlayerOpts {
   settings: Settings;
 }
 
+interface EngineLike {
+  subscribe(listener: (s: EngineState) => void): () => void;
+  play(): void;
+  pause(): void;
+  toggle(): void;
+  rewind(seconds: number): void;
+  forward(seconds: number): void;
+  seekToTime(seconds: number): void | Promise<void>;
+  seekToSection(id: string): void | Promise<void>;
+  seekToChunk(sectionId: string, idx: number): void | Promise<void>;
+  setRate(r: number): void;
+  setVoice(v: string): void;
+  setPitch?(p: number): void;
+  restoreState(state: {
+    currentSectionId?: string | null;
+    currentChunkIndex?: number;
+    estimatedCurrentSeconds?: number;
+  }): void;
+  destroy(): void;
+  snapshot(): EngineState;
+}
+
+function adaptSpeech(engine: SpeechEngine): EngineLike {
+  return {
+    subscribe: (l) => engine.subscribe(l as (s: EngineState) => void),
+    play: () => engine.play(),
+    pause: () => engine.pause(),
+    toggle: () => engine.toggle(),
+    rewind: (s) => engine.rewind(s),
+    forward: (s) => engine.forward(s),
+    seekToTime: (s) => engine.seekToTime(s),
+    seekToSection: (id) => engine.seekToSection(id),
+    seekToChunk: (sid, idx) => engine.seekToChunk(sid, idx),
+    setRate: (r) => engine.setRate(r),
+    setPitch: (p) => engine.setPitch(p),
+    setVoice: (v) => engine.setVoice(v),
+    restoreState: (s) => engine.restoreState(s),
+    destroy: () => engine.destroy(),
+    snapshot: () => engine.snapshot() as EngineState,
+  };
+}
+
 export function usePlayer({ cast, settings }: UsePlayerOpts) {
-  const engineRef = useRef<SpeechEngine | null>(null);
+  const engineRef = useRef<EngineLike | null>(null);
   const [state, setState] = useState<EngineState>({
     status: "idle",
     currentSectionId: null,
     currentChunkIndex: 0,
     estimatedCurrentSeconds: 0,
-    totalDurationSeconds: 0,
+    totalDurationSeconds: cast?.totalDurationSeconds ?? 0,
     rate: settings.rate,
-    voiceURI: settings.voiceURI,
+    voice: settings.ttsVoice,
   });
-  const [available] = useState(() => SpeechEngine.isAvailable());
 
   useEffect(() => {
     if (!cast) return;
-    const engine = new SpeechEngine(cast, {
-      rate: settings.rate,
-      pitch: settings.pitch,
-      voiceURI: settings.voiceURI,
-    });
+    let engine: EngineLike;
+    if (settings.ttsProvider === "google") {
+      engine = new AudioEngine(cast, {
+        rate: settings.rate,
+        voice: settings.ttsVoice,
+      });
+    } else {
+      engine = adaptSpeech(
+        new SpeechEngine(cast, {
+          rate: settings.rate,
+          pitch: settings.pitch,
+          voiceURI: settings.voiceURI,
+        }),
+      );
+    }
     engineRef.current = engine;
     const unsub = engine.subscribe(setState);
 
@@ -49,23 +101,25 @@ export function usePlayer({ cast, settings }: UsePlayerOpts) {
       engineRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cast?.id]);
+  }, [cast?.id, settings.ttsProvider]);
 
-  // Push setting changes into engine on the fly.
   useEffect(() => {
-    if (!engineRef.current) return;
-    engineRef.current.setRate(settings.rate);
+    engineRef.current?.setRate(settings.rate);
   }, [settings.rate]);
-  useEffect(() => {
-    if (!engineRef.current) return;
-    engineRef.current.setPitch(settings.pitch);
-  }, [settings.pitch]);
-  useEffect(() => {
-    if (!engineRef.current) return;
-    engineRef.current.setVoice(settings.voiceURI);
-  }, [settings.voiceURI]);
 
-  // Persist position periodically and on key transitions.
+  useEffect(() => {
+    engineRef.current?.setPitch?.(settings.pitch);
+  }, [settings.pitch]);
+
+  useEffect(() => {
+    if (settings.ttsProvider === "google") {
+      engineRef.current?.setVoice(settings.ttsVoice);
+    } else if (settings.voiceURI) {
+      engineRef.current?.setVoice(settings.voiceURI);
+    }
+  }, [settings.ttsProvider, settings.ttsVoice, settings.voiceURI]);
+
+  // Persist position periodically.
   useEffect(() => {
     if (!cast || !state.currentSectionId) return;
     const handle = setInterval(() => {
@@ -76,14 +130,20 @@ export function usePlayer({ cast, settings }: UsePlayerOpts) {
         currentCharacterOffset: 0,
         estimatedCurrentSeconds: state.estimatedCurrentSeconds,
         playbackRate: state.rate,
-        selectedVoiceURI: state.voiceURI,
+        selectedVoiceURI: state.voice,
         updatedAt: Date.now(),
       });
     }, 4000);
     return () => clearInterval(handle);
-  }, [cast, state.currentSectionId, state.currentChunkIndex, state.rate, state.voiceURI, state.estimatedCurrentSeconds]);
+  }, [
+    cast,
+    state.currentSectionId,
+    state.currentChunkIndex,
+    state.rate,
+    state.voice,
+    state.estimatedCurrentSeconds,
+  ]);
 
-  // Save on pause / page hide.
   useEffect(() => {
     if (!cast) return;
     const persist = () => {
@@ -96,7 +156,7 @@ export function usePlayer({ cast, settings }: UsePlayerOpts) {
         currentCharacterOffset: 0,
         estimatedCurrentSeconds: snap.estimatedCurrentSeconds,
         playbackRate: snap.rate,
-        selectedVoiceURI: snap.voiceURI,
+        selectedVoiceURI: snap.voice,
         updatedAt: Date.now(),
       });
     };
@@ -111,7 +171,8 @@ export function usePlayer({ cast, settings }: UsePlayerOpts) {
 
   return {
     state,
-    available,
+    available:
+      settings.ttsProvider === "google" || SpeechEngine.isAvailable(),
     play: () => engineRef.current?.play(),
     pause: () => engineRef.current?.pause(),
     toggle: () => engineRef.current?.toggle(),

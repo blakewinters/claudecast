@@ -47,6 +47,8 @@ export interface PlaybackState {
 
 export interface Settings {
   id: "singleton";
+  ttsProvider: "google" | "browser";
+  ttsVoice: string;
   voiceURI?: string;
   rate: number;
   pitch: number;
