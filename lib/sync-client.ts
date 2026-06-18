@@ -10,57 +10,54 @@ interface PullResponse {
   settings: Settings | null;
 }
 
-/**
- * Fire-and-forget pushes — failures don't block local writes.
- */
-export async function pushCast(cast: Cast): Promise<void> {
+async function postJson(
+  url: string,
+  body: unknown,
+  opts: { keepalive?: boolean } = {},
+): Promise<boolean> {
   try {
-    await fetch("/api/sync/casts", {
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(cast),
-      keepalive: true,
+      body: JSON.stringify(body),
+      // keepalive caps body at 64 KB; only enable for small payloads.
+      keepalive: opts.keepalive ?? false,
     });
-  } catch {
-    // Offline / network error — local copy still saved.
+    if (!res.ok) {
+      console.warn(`[sync] ${url} → ${res.status}`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn(`[sync] ${url} threw`, err);
+    return false;
   }
 }
 
-export async function pushCastDelete(id: string): Promise<void> {
+// Casts can be > 64 KB → no keepalive.
+export async function pushCast(cast: Cast): Promise<boolean> {
+  return postJson("/api/sync/casts", cast);
+}
+
+export async function pushCastDelete(id: string): Promise<boolean> {
   try {
-    await fetch(`/api/sync/casts/${encodeURIComponent(id)}`, {
+    const res = await fetch(`/api/sync/casts/${encodeURIComponent(id)}`, {
       method: "DELETE",
       keepalive: true,
     });
+    return res.ok;
   } catch {
-    // ignore
+    return false;
   }
 }
 
-export async function pushPlayback(state: PlaybackState): Promise<void> {
-  try {
-    await fetch("/api/sync/playback", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state),
-      keepalive: true,
-    });
-  } catch {
-    // ignore
-  }
+// Playback states are tiny — keepalive is safe.
+export async function pushPlayback(state: PlaybackState): Promise<boolean> {
+  return postJson("/api/sync/playback", state, { keepalive: true });
 }
 
-export async function pushSettings(settings: Settings): Promise<void> {
-  try {
-    await fetch("/api/sync/settings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(settings),
-      keepalive: true,
-    });
-  } catch {
-    // ignore
-  }
+export async function pushSettings(settings: Settings): Promise<boolean> {
+  return postJson("/api/sync/settings", settings, { keepalive: true });
 }
 
 /**
@@ -88,6 +85,7 @@ export async function pullAndMerge(): Promise<{
 
   let pulled = 0;
   let pushed = 0;
+  const pushPromises: Promise<unknown>[] = [];
 
   // Casts: merge by updatedAt
   for (const [id, remote] of remoteCastsById) {
@@ -100,7 +98,7 @@ export async function pullAndMerge(): Promise<{
   for (const [id, local] of localCastsById) {
     const remote = remoteCastsById.get(id);
     if (!remote || (local.updatedAt ?? 0) > (remote.updatedAt ?? 0)) {
-      void pushCast(local);
+      pushPromises.push(pushCast(local));
       pushed++;
     }
   }
@@ -118,7 +116,7 @@ export async function pullAndMerge(): Promise<{
   for (const [id, local] of localPbById) {
     const remote = remotePbById.get(id);
     if (!remote || (local.updatedAt ?? 0) > (remote.updatedAt ?? 0)) {
-      void pushPlayback(local);
+      pushPromises.push(pushPlayback(local));
       pushed++;
     }
   }
@@ -127,6 +125,8 @@ export async function pullAndMerge(): Promise<{
   if (data.settings) {
     await db.settings.put({ ...data.settings, id: "singleton" });
   }
+
+  await Promise.allSettled(pushPromises);
 
   return { pulled, pushed, configured: true };
 }
