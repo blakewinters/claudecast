@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ExternalLink,
@@ -23,11 +23,11 @@ import { deleteCast, saveCast } from "@/lib/db";
 import { buildCast } from "@/lib/parser";
 
 interface Props {
-  params: Promise<{ id: string }>;
+  params: { id: string };
 }
 
 export default function PlayerPage({ params }: Props) {
-  const { id } = use(params);
+  const { id } = params;
   const router = useRouter();
   const cast = useCast(id);
   const { settings, update: updateSettings } = useSettings();
