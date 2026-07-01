@@ -15,7 +15,6 @@ import { SectionList } from "@/components/SectionList";
 import { TranscriptView } from "@/components/TranscriptView";
 import { SpeedSelector } from "@/components/SpeedSelector";
 import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
 import { useCast } from "@/hooks/useCasts";
 import { useSettings } from "@/hooks/useSettings";
 import { usePlayer } from "@/hooks/usePlayer";
@@ -160,7 +159,7 @@ export default function PlayerPage({ params }: Props) {
           </div>
         }
       />
-      <main className="px-4 pt-4 pb-32 space-y-5">
+      <main className="px-4 pt-4 pb-48 space-y-5">
         <div>
           <h1 className="text-2xl font-semibold leading-tight">{cast.title}</h1>
           {cast.topic && (
@@ -181,23 +180,8 @@ export default function PlayerPage({ params }: Props) {
         )}
 
         <Card>
-          <ProgressBar
-            currentSeconds={player.state.estimatedCurrentSeconds}
-            totalSeconds={player.state.totalDurationSeconds}
-            onSeek={player.seekToTime}
-          />
-          <div className="mt-3">
-            <PlayerControls
-              playing={playing}
-              onToggle={player.toggle}
-              onRewind={() => player.rewind(settings.rewindSeconds)}
-              onForward={() => player.forward(settings.forwardSeconds)}
-              rewindSeconds={settings.rewindSeconds}
-              forwardSeconds={settings.forwardSeconds}
-            />
-          </div>
-          <div className="mt-3 flex items-center justify-end gap-2">
-            <span className="text-xs text-ink-dim">Speed</span>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-ink-dim uppercase tracking-wide">Speed</span>
             <SpeedSelector rate={settings.rate} onChange={onSetRate} />
           </div>
         </Card>
@@ -227,50 +211,60 @@ export default function PlayerPage({ params }: Props) {
       </main>
 
       <StickyPlayerBar
-        title={cast.title}
         playing={playing}
         onToggle={player.toggle}
+        onRewind={() => player.rewind(settings.rewindSeconds)}
+        onForward={() => player.forward(settings.forwardSeconds)}
+        onSeek={player.seekToTime}
+        rewindSeconds={settings.rewindSeconds}
+        forwardSeconds={settings.forwardSeconds}
+        currentSeconds={player.state.estimatedCurrentSeconds}
+        totalSeconds={player.state.totalDurationSeconds}
       />
     </>
   );
 }
 
 function StickyPlayerBar({
-  title,
   playing,
   onToggle,
+  onRewind,
+  onForward,
+  onSeek,
+  rewindSeconds,
+  forwardSeconds,
+  currentSeconds,
+  totalSeconds,
 }: {
-  title: string;
   playing: boolean;
   onToggle: () => void;
+  onRewind: () => void;
+  onForward: () => void;
+  onSeek: (seconds: number) => void;
+  rewindSeconds: number;
+  forwardSeconds: number;
+  currentSeconds: number;
+  totalSeconds: number;
 }) {
   return (
-    <div className="fixed bottom-0 inset-x-0 z-10 bg-bg/95 backdrop-blur border-t border-line">
-      <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="text-xs text-ink-muted">Now playing</div>
-          <div className="truncate text-sm font-medium">{title}</div>
-        </div>
-        <Button
-          onClick={onToggle}
-          size="icon"
-          variant="primary"
-          aria-label={playing ? "Pause" : "Play"}
-        >
-          {playing ? (
-            <span className="block h-4 w-4 border-l-2 border-r-2 border-bg" />
-          ) : (
-            <span
-              className="block h-0 w-0"
-              style={{
-                borderLeft: "10px solid currentColor",
-                borderTop: "6px solid transparent",
-                borderBottom: "6px solid transparent",
-                marginLeft: "2px",
-              }}
-            />
-          )}
-        </Button>
+    <div
+      className="fixed bottom-0 inset-x-0 z-10 bg-bg/95 backdrop-blur border-t border-line"
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+    >
+      <div className="max-w-2xl mx-auto px-4 pt-2 pb-3 space-y-1">
+        <ProgressBar
+          currentSeconds={currentSeconds}
+          totalSeconds={totalSeconds}
+          onSeek={onSeek}
+        />
+        <PlayerControls
+          playing={playing}
+          onToggle={onToggle}
+          onRewind={onRewind}
+          onForward={onForward}
+          rewindSeconds={rewindSeconds}
+          forwardSeconds={forwardSeconds}
+        />
       </div>
     </div>
   );

@@ -16,7 +16,7 @@ export function TopBar({ title, back, rightSlot }: Props) {
   return (
     <header className="sticky top-0 z-20 bg-bg/90 backdrop-blur border-b border-line">
       <div className="h-14 px-3 flex items-center gap-2">
-        {back ? (
+        {back && (
           <button
             onClick={() => router.back()}
             aria-label="Back"
@@ -24,15 +24,14 @@ export function TopBar({ title, back, rightSlot }: Props) {
           >
             <ChevronLeft className="h-6 w-6" />
           </button>
-        ) : (
-          <Link
-            href="/"
-            className="font-semibold text-lg text-ink px-2"
-            aria-label="ClaudeCast home"
-          >
-            ClaudeCast
-          </Link>
         )}
+        <Link
+          href="/"
+          className="font-semibold text-lg text-ink px-2 hover:text-accent transition-colors"
+          aria-label="ClaudeCast home"
+        >
+          ClaudeCast
+        </Link>
         <div className="flex-1 min-w-0 text-center">
           {title && (
             <div className="font-medium truncate text-ink">{title}</div>

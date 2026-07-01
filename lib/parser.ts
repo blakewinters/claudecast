@@ -24,20 +24,9 @@ interface RawChunk {
 export function chunkText(text: string, maxChars = DEFAULT_CHUNK_CHARS): RawChunk[] {
   if (!text.trim()) return [];
 
-  const sentenceRegex = /[^.!?\n]+(?:[.!?]+|\n+|$)/g;
-  const sentences: RawChunk[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = sentenceRegex.exec(text)) !== null) {
-    const s = match[0];
-    if (!s.trim()) continue;
-    sentences.push({
-      text: s,
-      charStart: match.index,
-      charEnd: match.index + s.length,
-    });
-  }
+  const sentences = splitSentences(text);
   if (sentences.length === 0) {
-    return [{ text, charStart: 0, charEnd: text.length }];
+    return splitLongSpan(text, 0, maxChars);
   }
 
   const out: RawChunk[] = [];
@@ -45,24 +34,15 @@ export function chunkText(text: string, maxChars = DEFAULT_CHUNK_CHARS): RawChun
 
   const flush = () => {
     if (!current) return;
-    const trimmed = current.text.trim();
-    if (trimmed) out.push(current);
+    if (current.text.trim()) out.push(current);
     current = null;
   };
 
   for (const s of sentences) {
     if (s.text.length > maxChars) {
       flush();
-      let pos = 0;
-      while (pos < s.text.length) {
-        const end = Math.min(pos + maxChars, s.text.length);
-        out.push({
-          text: s.text.slice(pos, end),
-          charStart: s.charStart + pos,
-          charEnd: s.charStart + end,
-        });
-        pos = end;
-      }
+      const pieces = splitLongSpan(s.text, s.charStart, maxChars);
+      for (const p of pieces) if (p.text.trim()) out.push(p);
       continue;
     }
     if (current && current.text.length + s.text.length > maxChars) {
@@ -77,6 +57,119 @@ export function chunkText(text: string, maxChars = DEFAULT_CHUNK_CHARS): RawChun
   }
   flush();
   return out;
+}
+
+// Walk text tracking paren/bracket/quote depth so `.!?` only ends a sentence
+// when we're at depth 0. Keeps "e.g." and parentheticals like "(great!)" intact.
+function splitSentences(text: string): RawChunk[] {
+  const out: RawChunk[] = [];
+  const depths = computeGroupingDepths(text);
+  let start = 0;
+  const push = (end: number) => {
+    if (end <= start) return;
+    const slice = text.slice(start, end);
+    if (slice.trim()) {
+      out.push({ text: slice, charStart: start, charEnd: end });
+    }
+    start = end;
+  };
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "\n") {
+      push(i + 1);
+      continue;
+    }
+    if ((c === "." || c === "!" || c === "?") && depths[i] === 0) {
+      let j = i + 1;
+      while (j < text.length && (text[j] === "." || text[j] === "!" || text[j] === "?")) j++;
+      // Extend over a trailing closing quote/bracket like `.")` so it stays with the sentence.
+      while (j < text.length && /["'”’)\]]/.test(text[j]) && depths[j] === 0) j++;
+      const next = text[j];
+      if (next === undefined || /\s/.test(next)) {
+        // Include trailing spaces so the next sentence starts at its first non-space char.
+        let k = j;
+        while (k < text.length && text[k] === " ") k++;
+        push(k);
+        i = k - 1;
+      }
+    }
+  }
+  push(text.length);
+  return out;
+}
+
+// Split an over-long span at the strongest available boundary before maxChars.
+// Prefers sentence punctuation → clause punctuation → dash → comma → whitespace,
+// and refuses to split when the candidate index sits inside an open group.
+function splitLongSpan(text: string, baseOffset: number, maxChars: number): RawChunk[] {
+  const out: RawChunk[] = [];
+  let pos = 0;
+  while (pos < text.length) {
+    const remaining = text.length - pos;
+    if (remaining <= maxChars) {
+      out.push({
+        text: text.slice(pos),
+        charStart: baseOffset + pos,
+        charEnd: baseOffset + text.length,
+      });
+      break;
+    }
+    const windowEnd = pos + maxChars;
+    const splitAt = findSplitPoint(text, pos, windowEnd);
+    out.push({
+      text: text.slice(pos, splitAt),
+      charStart: baseOffset + pos,
+      charEnd: baseOffset + splitAt,
+    });
+    pos = splitAt;
+  }
+  return out;
+}
+
+function findSplitPoint(text: string, start: number, endLimit: number): number {
+  const depths = computeGroupingDepths(text);
+  const patterns: RegExp[] = [
+    /[.!?]["'”’)\]]?\s+/g,
+    /[;:]\s+/g,
+    /[—–]\s*/g,
+    /,\s+/g,
+    /\s+/g,
+  ];
+  for (const pat of patterns) {
+    let best = -1;
+    pat.lastIndex = start;
+    let m: RegExpExecArray | null;
+    while ((m = pat.exec(text)) !== null) {
+      if (m.index >= endLimit) break;
+      const splitIdx = m.index + m[0].length;
+      if (splitIdx > endLimit) break;
+      if (splitIdx <= start) continue;
+      if ((depths[m.index] ?? 0) !== 0) continue;
+      best = splitIdx;
+    }
+    if (best > start) return best;
+  }
+  return endLimit;
+}
+
+// depths[i] = number of open (,[,{ groups at position i, computed before consuming text[i].
+function computeGroupingDepths(text: string): number[] {
+  const depths = new Array<number>(text.length + 1);
+  let paren = 0;
+  let bracket = 0;
+  let curly = 0;
+  for (let i = 0; i < text.length; i++) {
+    depths[i] = paren + bracket + curly;
+    const c = text[i];
+    if (c === "(") paren++;
+    else if (c === ")") paren = Math.max(0, paren - 1);
+    else if (c === "[") bracket++;
+    else if (c === "]") bracket = Math.max(0, bracket - 1);
+    else if (c === "{") curly++;
+    else if (c === "}") curly = Math.max(0, curly - 1);
+  }
+  depths[text.length] = paren + bracket + curly;
+  return depths;
 }
 
 const NAMED_HEADING_RE =

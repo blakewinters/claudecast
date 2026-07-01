@@ -78,6 +78,35 @@ describe("chunkText", () => {
       expect(c.text.length).toBeLessThanOrEqual(200);
     }
   });
+  it("never splits mid-word when a break exists", () => {
+    const words = Array(80).fill("great").join(" ") + " end.";
+    const chunks = chunkText(words, 100);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) {
+      // Every chunk should start and end at a word boundary — no partial "gr...eat".
+      const trimmed = c.text.trim();
+      const first = trimmed.split(/\s+/)[0];
+      const last = trimmed.split(/\s+/).slice(-1)[0].replace(/[.!?,;:]+$/, "");
+      expect(first === "" || first === "great" || first === "end").toBe(true);
+      expect(last === "" || last === "great" || last === "end").toBe(true);
+    }
+  });
+  it("does not split inside parenthetical phrases", () => {
+    const prefix = "x ".repeat(100);
+    const text = `${prefix}(this whole parenthetical must stay together) tail.`;
+    const chunks = chunkText(text, 120);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) {
+      const opens = (c.text.match(/\(/g) ?? []).length;
+      const closes = (c.text.match(/\)/g) ?? []).length;
+      expect(opens).toBe(closes);
+    }
+  });
+  it("keeps 'e.g.' from ending a sentence prematurely", () => {
+    const text = "The plan (e.g., blueprint) is here. Another sentence.";
+    const chunks = chunkText(text, 240);
+    expect(chunks[0].text).toContain("(e.g., blueprint)");
+  });
 });
 
 describe("parseText", () => {
